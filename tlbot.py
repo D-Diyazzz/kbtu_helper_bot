@@ -8,11 +8,14 @@ import asyncio
 import sqlite3
 import os
 from dotenv import load_dotenv
+from telethon import TelegramClient
 
 load_dotenv()
 
 
 API_TOKEN = os.getenv("API_TOKEN")
+TELETHON_API_ID = os.getenv("TELETHON_API_ID")
+TELETHON_API_HASH = os.getenv("TELETHON_API_HASH")
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -218,7 +221,8 @@ async def send_welcome(message: Message, state: FSMContext):
             "/schedule — Расписание занятий\n"
             "/grades — Оценки и успеваемость\n"
             "/library — Библиотека\n"
-            "/change_role — Изменить роль"
+            "/change_role — Изменить роль\n"
+            "/news - Новости"
         )
     elif role == "Абитуриент":
         # Список команд для абитуриента
@@ -228,7 +232,8 @@ async def send_welcome(message: Message, state: FSMContext):
             "/tuition — Стоимость обучения\n"
             "/dormitory — Общежитие\n"
             "/contact — Контактная информация\n"
-            "/change_role — Изменить роль"
+            "/change_role — Изменить роль\n"
+            "/news - Новости"
         )
     else:
         # Если роль не определена, предлагаем зарегистрироваться
@@ -459,7 +464,53 @@ async def contact_info(message: types.Message):
 
     await message.reply(text, parse_mode="Markdown")
 
+def escape_markdown(text):
+    escape_chars = ('_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!')
+    for char in escape_chars:
+        text = text.replace(char, f"\\{char}")
+    return text
 
+def split_message(text, max_length=4096):
+    """Разделяет текст на части с учетом лимита Telegram."""
+    lines = text.split("\n")
+    chunks = []
+    current_chunk = ""
+    
+    for line in lines:
+        if len(current_chunk) + len(line) + 1 > max_length:
+            chunks.append(current_chunk)
+            current_chunk = line
+        else:
+            current_chunk += ("\n" if current_chunk else "") + line
+    
+    if current_chunk:
+        chunks.append(current_chunk)
+    
+    return chunks
+
+
+@dp.message(Command('news'))
+async def fetch_news(message: Message):
+    async with TelegramClient('session_name', TELETHON_API_ID, TELETHON_API_HASH) as client:
+        try:
+            # Получаем последние 5 сообщений из канала
+            channel = 'https://t.me/KBTUNFS'
+            messages = await client.get_messages(channel, limit=5)
+
+            news = "*Последние новости:*\n\n"
+            for msg in reversed(messages):  # Обратный порядок сообщений
+                if msg.text:  # Убедимся, что сообщение имеет текст
+                    sanitized_text = escape_markdown(msg.text)  # Экранируем текст
+                    news += f"{sanitized_text}\n\n\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\n\n"
+
+            # Разделяем новости на части, если они слишком длинные
+            news_chunks = split_message(news, max_length=4096)
+
+            
+            for chunk in news_chunks:
+                await message.reply(chunk, parse_mode="MarkdownV2")
+        except Exception as e:
+            await message.reply(f"Ошибка при получении новостей: {str(e)}")
 
 async def main():
     await dp.start_polling(bot)
